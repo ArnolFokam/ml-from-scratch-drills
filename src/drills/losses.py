@@ -60,7 +60,8 @@ def softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
           result, and does it need ``keepdims``?
         - Does your function write into the caller's array?
     """
-    raise NotImplementedError("Drill #1")
+    logits = np.exp(x - x.max(axis=axis, keepdims=True))
+    return logits / logits.sum(axis=axis, keepdims=True).clip(1e-12)
 
 
 def log_softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
@@ -80,7 +81,8 @@ def log_softmax(x: np.ndarray, axis: int = -1) -> np.ndarray:
         - Why is log(softmax(x)) a bad way to compute this?
         - Can you reuse the max-shift trick inside logsumexp?
     """
-    raise NotImplementedError("Drill #1")
+    logits = x - x.max(axis=axis, keepdims=True)
+    return logits - np.log(np.sum(np.exp(logits), axis=axis, keepdims=True))
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +110,16 @@ def softmax_cross_entropy(
         - Derive d(loss)/d(logit_j) for one row first. Where does 1/N enter?
         - With random small logits, what value should the loss be close to?
     """
-    raise NotImplementedError("Drill #2")
+    log_probs = log_softmax(logits)
+
+    n = targets.shape[0]
+    loss = float(-log_probs[np.arange(n), targets].mean())
+
+    dLogits = np.exp(log_probs)
+    dLogits[np.arange(n), targets] -= 1
+    dLogits = dLogits / n
+
+    return (loss, dLogits)
 
 
 # ---------------------------------------------------------------------------
