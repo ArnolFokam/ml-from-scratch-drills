@@ -58,7 +58,35 @@ def scaled_dot_product_attention(
         - What does softmax do to a row that is all -inf?
         - Does your mask mean "keep" or "block" at the point you apply it?
     """
-    raise NotImplementedError("Drill #20")
+    # Step 1: Get the attention scores (B, H, Lq, Lk)
+    scores = q @ k.transpose(-1, -2) / (k.shape[-1] ** 0.5)
+
+    # Step 2: Get the valid mask (B, H, Lq, Lk) and mask scores
+    Lq, Lk = scores.shape[-2:]
+    valid_mask = torch.ones((Lq, Lk), device=scores.device, dtype=bool)
+
+    if causal:
+        # We are not assuming that when causal is set, Lk >= Lq always holds
+        causal_mask = torch.tril(valid_mask, diagonal=Lk - Lq)
+        valid_mask = valid_mask & causal_mask
+
+    if mask is not None:
+        valid_mask = valid_mask & mask
+
+    scores = scores.masked_fill(~valid_mask, -torch.inf)
+
+    # Step 3: Compute the attention weights (B, H, Lq, Lk)
+    row_max = scores.amax(dim=-1, keepdim=True)
+    row_max = row_max.masked_fill(row_max == -torch.inf, 0)
+    weights = (scores - row_max).exp()
+    weights = weights / weights.sum(dim=-1, keepdim=True).clamp_min(1e-12)
+
+    # Step 4: Compute the output (B, H, Lq, dv)
+    return weights @ v
+
+
+    
+
 
 
 def scaled_dot_product_attention_np(
@@ -81,7 +109,33 @@ def scaled_dot_product_attention_np(
         - NumPy has no softmax: how do you make exp() safe for logits of 1e4?
         - How do you transpose only the last two axes of a 4-D array?
     """
-    raise NotImplementedError("Drill #20")
+    # Step 1: Get the attention scores (B, H, Lq, Lk)
+    scores = q @ k.swapaxes(-1, -2) / (k.shape[-1] ** 0.5)
+
+    # Step 2: Compute a valid mask and mask the scores (B, H, Lq, dv)
+    Lq, Lk = scores.shape[-2:]
+    valid_mask = np.ones((Lq, Lk), dtype=bool)
+
+    if causal:
+        causal_mask = np.tril(valid_mask, k=Lk - Lq)
+        valid_mask = valid_mask & causal_mask
+
+    if mask is not None:
+        valid_mask = valid_mask & mask
+
+    scores = np.where(valid_mask, scores, -np.inf)
+
+    # Step 3: Compute a numerically stable softmax (B, H, Lq, dv)
+    row_max = scores.max(axis=-1, keepdims=True)
+    row_max = np.where(row_max == -np.inf, 0, row_max)
+    weights = np.exp(scores - row_max)
+    weights = weights / weights.sum(axis=-1, keepdims=True).clip(min=1e-12)
+
+    # Step 4: Compute the final output (B, H, Lq, dv)
+    return weights @ v
+    
+
+
 
 
 # ---------------------------------------------------------------------------

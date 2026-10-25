@@ -160,7 +160,27 @@ def masked_cross_entropy(
         - What happens to gather() when a target equals ignore_index (-100)?
         - What does an all-False mask give you, and how do you avoid 0/0?
     """
-    raise NotImplementedError("Drill #3")
+    # Step 1: Get a valid mask (B, T)
+    valid = targets != ignore_index
+    if mask is not None:
+        valid = valid & mask
+
+    # Step 2: Get the log_probs (B, T, C)
+    logits = (logits - logits.amax(dim=-1, keepdim=True)) / temperature
+    log_probs = logits - torch.logsumexp(logits, dim=-1, keepdim=True)
+
+    # Step 3: Create the smoothed targets
+    C = log_probs.shape[-1]
+    targets_smoothed = torch.zeros_like(log_probs)
+    targets_masked = targets.masked_fill(~valid, 0)
+    targets_smoothed.scatter_(dim=-1, index=targets_masked.unsqueeze(-1), value=1.0)
+    targets_smoothed = targets_smoothed * (1 - label_smoothing) + label_smoothing / C
+
+    # Step 4: Compute the final loss (B, T) -> scalar
+    loss = -(log_probs * targets_smoothed).sum(dim=-1)
+    n_valid = valid.sum().clamp_min(1)
+    return (loss * valid).sum() / n_valid
+
 
 
 # ---------------------------------------------------------------------------
