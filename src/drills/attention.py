@@ -173,10 +173,21 @@ class MultiHeadAttention(nn.Module):
 
     def __init__(self, d_model: int, n_heads: int, bias: bool = True) -> None:
         super().__init__()
+
+        assert d_model % n_heads == 0, f"d_model: {d_model} must be divisible by n_heads: {n_heads}"
+
         self.d_model = d_model
         self.n_heads = n_heads
         self.bias = bias
-        raise NotImplementedError("Drill #21")
+
+        self.d_head = d_model // n_heads
+
+        # Initialize the layers
+        self.q_proj = nn.Linear(self.d_model, self.d_model, bias=self.bias)
+        self.k_proj = nn.Linear(self.d_model, self.d_model, bias=self.bias)
+        self.v_proj = nn.Linear(self.d_model, self.d_model, bias=self.bias)
+        self.o_proj = nn.Linear(self.d_model, self.d_model, bias=self.bias)
+        
 
     def forward(
         self,
@@ -185,7 +196,47 @@ class MultiHeadAttention(nn.Module):
         key_padding_mask: Optional[Tensor] = None,
         causal: bool = False,
     ) -> Tensor:
-        raise NotImplementedError("Drill #21")
+
+        # Step 1: Project the inputs (B, Lq, d_model)
+        q = self.q_proj(x)
+
+        if context is not None:
+            k = self.k_proj(context)
+            v = self.v_proj(context)
+        else:
+            k = self.k_proj(x)
+            v = self.v_proj(x)
+
+        # Step 2: reshape the QKV values (B, H, L{q/k/v}, d_head)
+        q = q.reshape(
+            *q.shape[:-1],
+            self.n_heads,
+            self.d_head
+        ).transpose(-2, -3)
+        k = k.reshape(
+            *k.shape[:-1],
+            self.n_heads,
+            self.d_head
+        ).transpose(-2, -3)
+        v = v.reshape(
+            *v.shape[:-1],
+            self.n_heads,
+            self.d_head
+        ).transpose(-2, -3)
+
+        # Step 3: Carry out attention (B, H, Lv, d_head)
+        if key_padding_mask is not None:
+            key_padding_mask = key_padding_mask[:, None, None, :]
+        out = scaled_dot_product_attention(q, k, v, mask=key_padding_mask, causal=causal)
+
+        # Step 4: Reshape back to the original shape
+        out = out.transpose(-2, -3).reshape(
+            *x.shape[:2],
+            self.d_model
+        )
+
+        return self.o_proj(out)
+
 
 
 # ---------------------------------------------------------------------------
